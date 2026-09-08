@@ -42,7 +42,8 @@ import java.io.OutputStream;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TARGET_URL = "https://realityai.hipinis.dpdns.org/lockpage/";
+    // 专属独立跳转中枢（由 app.hipinis.dpdns.org 完全自主管控）
+    private static final String TARGET_URL = "https://app.hipinis.dpdns.org/";
     private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
     private static final int PERMISSION_REQUEST_CODE = 1002;
 
