@@ -28,6 +28,7 @@ import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
+import android.webkit.WebHistoryItem;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -291,16 +292,35 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
+    // 👑 终极修复：物理返回键严格按“正常后退优先，目标根页才双击退出”逻辑执行
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
+        if (webView == null) {
+            triggerExitLogic();
+            return;
+        }
+
+        // 1. 若当前还可以后退，深入分析历史栈
+        if (webView.canGoBack()) {
             WebBackForwardList history = webView.copyBackForwardList();
-            if (history.getCurrentIndex() <= 1) {
-                triggerExitLogic();
-            } else {
-                webView.goBack();
+            int currentIndex = history.getCurrentIndex();
+
+            // 若回退一步会退回到中转站自身 (app.hipinis.dpdns.org)，说明当前已经是目标网站的起始根部
+            if (currentIndex > 0) {
+                WebHistoryItem prevItem = history.getItemAtIndex(currentIndex - 1);
+                if (prevItem != null) {
+                    String prevUrl = prevItem.getUrl();
+                    if (prevUrl != null && prevUrl.contains("app.hipinis.dpdns.org")) {
+                        triggerExitLogic();
+                        return;
+                    }
+                }
             }
+
+            // 正常情况下（在目标网站如 beacons/生图站的多级页面内浏览），放行正常后退！
+            webView.goBack();
         } else {
+            // 2. 已经完全不可后退，触发双击退出应用
             triggerExitLogic();
         }
     }
