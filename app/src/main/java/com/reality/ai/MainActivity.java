@@ -246,8 +246,8 @@ public class MainActivity extends AppCompatActivity {
 
                     CacheManager.getInstance(getApplicationContext()).syncCacheVersion(cacheVer);
 
-                    // 若线上版本高于当前安装的 1.0.1 则弹窗提示自更新
-                    if (!"1.0.1".equals(latestVer) && apkUrl.startsWith("http")) {
+                    // 若线上版本高于当前安装的 1.0.2 则弹窗提示自更新
+                    if (!"1.0.2".equals(latestVer) && apkUrl.startsWith("http")) {
                         new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl));
                     }
                 }
@@ -256,27 +256,117 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
+    // 👑 暗黑轻奢毛玻璃版本更新弹窗 (彻底重塑，告别丑陋原生系统弹窗)
     private void showUpdateDialog(String version, String notes, String downloadUrl) {
-        new AlertDialog.Builder(this)
-                .setTitle("🚀 发现新版本 " + version)
-                .setMessage(notes != null && !notes.isEmpty() ? notes : "检测到重要性能升级，推荐立即更新！")
-                .setPositiveButton("立即更新", (d, w) -> {
-                    try {
-                        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(downloadUrl));
-                        req.setTitle("Reality AI 正在更新...");
-                        req.setDescription("新版本安装包高速下载中");
-                        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                        req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RealityAI_v" + version + ".apk");
-                        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                        if (dm != null) dm.enqueue(req);
-                        Toast.makeText(this, "开始在后台下载新版本...", Toast.LENGTH_SHORT).show();
-                    } catch (Exception e) {
-                        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl));
-                        startActivity(i);
-                    }
-                })
-                .setNegativeButton("稍后再说", null)
-                .show();
+        try {
+            android.app.Dialog dialog = new android.app.Dialog(this);
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+            android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+            root.setOrientation(android.widget.LinearLayout.VERTICAL);
+            root.setPadding(48, 48, 48, 48);
+
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor(Color.parseColor("#f012121c"));
+            bg.setCornerRadius(36f);
+            bg.setStroke(3, Color.parseColor("#50f59e0b"));
+            root.setBackground(bg);
+
+            // 头部标题
+            android.widget.TextView titleTv = new android.widget.TextView(this);
+            titleTv.setText("🚀 发现新版本 v" + version);
+            titleTv.setTextSize(18f);
+            titleTv.setTextColor(Color.parseColor("#fbbf24"));
+            titleTv.setTypeface(null, android.graphics.Typeface.BOLD);
+            titleTv.setGravity(android.view.Gravity.CENTER);
+            root.addView(titleTv);
+
+            // 更新日志卡片
+            android.widget.ScrollView scrollView = new android.widget.ScrollView(this);
+            android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 260);
+            scrollLp.setMargins(0, 32, 0, 36);
+            scrollView.setLayoutParams(scrollLp);
+
+            android.widget.TextView notesTv = new android.widget.TextView(this);
+            notesTv.setText(notes != null && !notes.isEmpty() ? notes : "检测到重要性能升级，推荐立即更新体验！");
+            notesTv.setTextColor(Color.parseColor("#cbd5e1"));
+            notesTv.setTextSize(13f);
+            notesTv.setLineSpacing(8f, 1.2f);
+            notesTv.setPadding(28, 24, 28, 24);
+
+            android.graphics.drawable.GradientDrawable notesBg = new android.graphics.drawable.GradientDrawable();
+            notesBg.setColor(Color.parseColor("#8009090f"));
+            notesBg.setCornerRadius(20f);
+            notesBg.setStroke(2, Color.parseColor("#30ffffff"));
+            notesTv.setBackground(notesBg);
+            scrollView.addView(notesTv);
+            root.addView(scrollView);
+
+            // 操作按钮行
+            android.widget.LinearLayout btnRow = new android.widget.LinearLayout(this);
+            btnRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+
+            android.widget.Button btnCancel = new android.widget.Button(this);
+            btnCancel.setText("稍后再说");
+            btnCancel.setTextColor(Color.parseColor("#94a3b8"));
+            btnCancel.setTextSize(14f);
+            btnCancel.setTypeface(null, android.graphics.Typeface.BOLD);
+            android.widget.LinearLayout.LayoutParams cancelLp = new android.widget.LinearLayout.LayoutParams(
+                    0, 120, 1f);
+            cancelLp.setMargins(0, 0, 16, 0);
+            btnCancel.setLayoutParams(cancelLp);
+            android.graphics.drawable.GradientDrawable cancelBg = new android.graphics.drawable.GradientDrawable();
+            cancelBg.setColor(Color.parseColor("#20ffffff"));
+            cancelBg.setCornerRadius(24f);
+            cancelBg.setStroke(2, Color.parseColor("#40ffffff"));
+            btnCancel.setBackground(cancelBg);
+            btnCancel.setOnClickListener(v -> dialog.dismiss());
+            btnRow.addView(btnCancel);
+
+            android.widget.Button btnConfirm = new android.widget.Button(this);
+            btnConfirm.setText("立即极速更新");
+            btnConfirm.setTextColor(Color.parseColor("#000000"));
+            btnConfirm.setTextSize(14f);
+            btnConfirm.setTypeface(null, android.graphics.Typeface.BOLD);
+            android.widget.LinearLayout.LayoutParams confirmLp = new android.widget.LinearLayout.LayoutParams(
+                    0, 120, 1.4f);
+            btnConfirm.setLayoutParams(confirmLp);
+            android.graphics.drawable.GradientDrawable confirmBg = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{Color.parseColor("#f59e0b"), Color.parseColor("#d946ef")}
+            );
+            confirmBg.setCornerRadius(24f);
+            btnConfirm.setBackground(confirmBg);
+            btnConfirm.setOnClickListener(v -> {
+                dialog.dismiss();
+                try {
+                    DownloadManager.Request req = new DownloadManager.Request(Uri.parse(downloadUrl));
+                    req.setTitle("Reality AI 正在更新...");
+                    req.setDescription("新版本安装包高速下载中");
+                    req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RealityAI_v" + version + ".apk");
+                    DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                    if (dm != null) dm.enqueue(req);
+                    showDarkToast("🚀 开始在后台下载新版本...");
+                } catch (Exception e) {
+                    Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl));
+                    startActivity(i);
+                }
+            });
+            btnRow.addView(btnConfirm);
+            root.addView(btnRow);
+
+            dialog.setContentView(root);
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+                dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.88),
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            }
+            dialog.show();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -373,15 +463,88 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    // 👑 暗黑轻奢毛玻璃长按存图弹窗 (彻底废除丑陋原生 AlertDialog)
     private void showSaveImageDialog(String imageUrl) {
-        new AlertDialog.Builder(this)
-                .setTitle("🔥 Reality AI 原生画廊")
-                .setMessage("是否将当前高清图片保存至手机相册？")
-                .setPositiveButton("保存到相册", (dialog, which) -> {
-                    saveImageToGallery(imageUrl);
-                })
-                .setNegativeButton("取消", null)
-                .show();
+        try {
+            android.app.Dialog dialog = new android.app.Dialog(this);
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+            android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+            root.setOrientation(android.widget.LinearLayout.VERTICAL);
+            root.setPadding(44, 40, 44, 40);
+
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor(Color.parseColor("#f012121c"));
+            bg.setCornerRadius(32f);
+            bg.setStroke(3, Color.parseColor("#50f59e0b"));
+            root.setBackground(bg);
+
+            android.widget.TextView titleTv = new android.widget.TextView(this);
+            titleTv.setText("🔥 Reality AI 原生画廊");
+            titleTv.setTextSize(17f);
+            titleTv.setTextColor(Color.parseColor("#fbbf24"));
+            titleTv.setTypeface(null, android.graphics.Typeface.BOLD);
+            titleTv.setGravity(android.view.Gravity.CENTER);
+            root.addView(titleTv);
+
+            android.widget.TextView descTv = new android.widget.TextView(this);
+            descTv.setText("是否将当前精选高清大图保存至手机相册？");
+            descTv.setTextSize(13.5f);
+            descTv.setTextColor(Color.parseColor("#cbd5e1"));
+            descTv.setGravity(android.view.Gravity.CENTER);
+            descTv.setPadding(0, 24, 0, 36);
+            root.addView(descTv);
+
+            android.widget.LinearLayout btnRow = new android.widget.LinearLayout(this);
+            btnRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+
+            android.widget.Button btnCancel = new android.widget.Button(this);
+            btnCancel.setText("取消");
+            btnCancel.setTextColor(Color.parseColor("#94a3b8"));
+            btnCancel.setTextSize(14f);
+            btnCancel.setTypeface(null, android.graphics.Typeface.BOLD);
+            android.widget.LinearLayout.LayoutParams cancelLp = new android.widget.LinearLayout.LayoutParams(0, 115, 1f);
+            cancelLp.setMargins(0, 0, 14, 0);
+            btnCancel.setLayoutParams(cancelLp);
+            android.graphics.drawable.GradientDrawable cancelBg = new android.graphics.drawable.GradientDrawable();
+            cancelBg.setColor(Color.parseColor("#20ffffff"));
+            cancelBg.setCornerRadius(22f);
+            cancelBg.setStroke(2, Color.parseColor("#40ffffff"));
+            btnCancel.setBackground(cancelBg);
+            btnCancel.setOnClickListener(v -> dialog.dismiss());
+            btnRow.addView(btnCancel);
+
+            android.widget.Button btnSave = new android.widget.Button(this);
+            btnSave.setText("保存到相册");
+            btnSave.setTextColor(Color.parseColor("#000000"));
+            btnSave.setTextSize(14f);
+            btnSave.setTypeface(null, android.graphics.Typeface.BOLD);
+            android.widget.LinearLayout.LayoutParams saveLp = new android.widget.LinearLayout.LayoutParams(0, 115, 1.3f);
+            btnSave.setLayoutParams(saveLp);
+            android.graphics.drawable.GradientDrawable saveBg = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{Color.parseColor("#f59e0b"), Color.parseColor("#d946ef")}
+            );
+            saveBg.setCornerRadius(22f);
+            btnSave.setBackground(saveBg);
+            btnSave.setOnClickListener(v -> {
+                dialog.dismiss();
+                saveImageToGallery(imageUrl);
+            });
+            btnRow.addView(btnSave);
+
+            root.addView(btnRow);
+
+            dialog.setContentView(root);
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+                dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.84),
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            }
+            dialog.show();
+        } catch (Exception e) {
+            saveImageToGallery(imageUrl);
+        }
     }
 
     private void setupDownloadListener() {
@@ -416,10 +579,10 @@ public class MainActivity extends AppCompatActivity {
                 DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
                 if (dm != null) {
                     dm.enqueue(request);
-                    Toast.makeText(getApplicationContext(), "开始下载高清图片...", Toast.LENGTH_SHORT).show();
+                    showDarkToast("开始下载高清图片...");
                 }
             } catch (Exception e) {
-                Toast.makeText(getApplicationContext(), "下载启动失败，请检查网络", Toast.LENGTH_SHORT).show();
+                showDarkToast("下载启动失败，请检查网络");
             }
         });
     }
@@ -571,14 +734,42 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 new Handler(Looper.getMainLooper()).post(() ->
-                    Toast.makeText(MainActivity.this, "已成功保存高清大图至相册！", Toast.LENGTH_SHORT).show()
+                    showDarkToast("✨ 已成功保存高清大图至相册！")
                 );
             } catch (Exception e) {
                 new Handler(Looper.getMainLooper()).post(() ->
-                    Toast.makeText(MainActivity.this, "保存图片失败", Toast.LENGTH_SHORT).show()
+                    showDarkToast("⚠️ 保存图片失败")
                 );
             }
         }).start();
+    }
+
+    // 👑 专属暗黑轻奢微光悬浮胶囊 Toast
+    public void showDarkToast(String message) {
+        runOnUiThread(() -> {
+            try {
+                Toast toast = new Toast(getApplicationContext());
+                toast.setDuration(Toast.LENGTH_SHORT);
+                android.widget.TextView tv = new android.widget.TextView(this);
+                tv.setText(message);
+                tv.setTextColor(Color.parseColor("#f1f5f9"));
+                tv.setTextSize(13.5f);
+                tv.setTypeface(null, android.graphics.Typeface.BOLD);
+                tv.setGravity(android.view.Gravity.CENTER);
+                tv.setPadding(46, 24, 46, 24);
+
+                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                gd.setColor(Color.parseColor("#ea12121c"));
+                gd.setCornerRadius(36f);
+                gd.setStroke(3, Color.parseColor("#70f59e0b"));
+                tv.setBackground(gd);
+
+                toast.setView(tv);
+                toast.show();
+            } catch (Exception e) {
+                Toast.makeText(getApplicationContext(), message, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private void sendSystemNotification(String title, String message, String jumpUrl) {
@@ -660,7 +851,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         this.doubleBackToExitPressedOnce = true;
-        Toast.makeText(this, "再按一次退出应用", Toast.LENGTH_SHORT).show();
+        showDarkToast("再按一次退出应用");
         new Handler(Looper.getMainLooper()).postDelayed(() -> doubleBackToExitPressedOnce = false, 2000);
     }
 

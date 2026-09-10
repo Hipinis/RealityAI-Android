@@ -74,11 +74,35 @@ public class CacheManager {
         // 仅拦截静态库与重型资产文件
         if (path.endsWith(".css") || path.endsWith(".js") || path.endsWith(".woff2") ||
             path.endsWith(".woff") || path.endsWith(".ttf") || path.endsWith(".svg") ||
-            path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".webp")) {
+            path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+            path.endsWith(".webp") || urlStr.contains("cdn.beacons.ai") || urlStr.contains("user_content")) {
 
             String mimeType = getMimeType(path);
-            String cacheKey = md5(urlStr);
-            File cachedFile = new File(cacheDir, cacheKey);
+            String cacheKeyFull = md5(urlStr);
+            String cleanUrl = urlStr.split("\\?")[0];
+            String cacheKeyClean = md5(cleanUrl);
+
+            // 👑 第一优先级：直接从 APK 本地内置的 assets/static_preload/ 中 0ms 瞬间秒开！
+            try {
+                InputStream assetStream = null;
+                try {
+                    assetStream = context.getAssets().open("static_preload/" + cacheKeyFull);
+                } catch (Exception e1) {
+                    try {
+                        assetStream = context.getAssets().open("static_preload/" + cacheKeyClean);
+                    } catch (Exception ignored) {}
+                }
+
+                if (assetStream != null) {
+                    return new WebResourceResponse(mimeType, "UTF-8", assetStream);
+                }
+            } catch (Exception ignored) {}
+
+            // 👑 第二优先级：从手机沙盒动态持久化磁盘缓存读取
+            File cachedFile = new File(cacheDir, cacheKeyFull);
+            if (!cachedFile.exists() || cachedFile.length() == 0) {
+                cachedFile = new File(cacheDir, cacheKeyClean);
+            }
 
             if (cachedFile.exists() && cachedFile.length() > 0) {
                 try {
@@ -86,8 +110,8 @@ public class CacheManager {
                 } catch (Exception ignored) {}
             }
 
-            // 本地未命中时，异步拉取并写入磁盘，供后续毫秒级直接复用
-            asyncWarmUp(urlStr, cachedFile);
+            // 👑 第三优先级：本地沙盒未命中时，异步拉取并写入磁盘，供后续毫秒级直接复用
+            asyncWarmUp(urlStr, new File(cacheDir, cacheKeyFull));
         }
         return null;
     }
