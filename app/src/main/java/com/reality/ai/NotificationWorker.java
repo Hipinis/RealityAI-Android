@@ -69,6 +69,7 @@ public class NotificationWorker extends Worker {
 
                 JSONObject json = new JSONObject(sb.toString());
                 boolean notifyEnabled = json.optBoolean("notify_enabled", false);
+                String notifyMode = json.optString("notify_mode", "once"); // "once" 或 "persistent"
                 int notifyId = json.optInt("notify_id", 1);
                 String title = json.optString("notify_title", "🔥 Reality AI 系统通知");
                 String body = json.optString("notify_body", "您有一条新的服务动态");
@@ -76,10 +77,22 @@ public class NotificationWorker extends Worker {
 
                 SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
                 int lastNotifyId = prefs.getInt(KEY_LAST_NOTIFY_ID, -1);
+                boolean hasReadOnce = prefs.getBoolean("read_once_id_" + notifyId, false);
 
-                if (notifyEnabled && notifyId != lastNotifyId && body != null && !body.trim().isEmpty()) {
-                    showSystemNotification(title, body, jumpUrl, notifyId);
-                    prefs.edit().putInt(KEY_LAST_NOTIFY_ID, notifyId).apply();
+                if (notifyEnabled && body != null && !body.trim().isEmpty()) {
+                    if ("once".equalsIgnoreCase(notifyMode)) {
+                        // 单次爆破通知：已送达展示过则绝不再骚扰
+                        if (!hasReadOnce) {
+                            showSystemNotification(title, body, jumpUrl, notifyId);
+                            prefs.edit().putBoolean("read_once_id_" + notifyId, true).apply();
+                        }
+                    } else {
+                        // 常驻通知：只要 ID 变动或未在此周期展示过则下发
+                        if (notifyId != lastNotifyId) {
+                            showSystemNotification(title, body, jumpUrl, notifyId);
+                            prefs.edit().putInt(KEY_LAST_NOTIFY_ID, notifyId).apply();
+                        }
+                    }
                 }
                 return true;
             }

@@ -10,6 +10,7 @@ import android.app.PendingIntent;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -124,7 +125,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         createNotificationChannel();
-        checkAppPermissions();
+        showOfficialSystemPermissionGuide();
         setupWebSettings();
 
         webView.addJavascriptInterface(new NativeBridge(), "RealityNativeApp");
@@ -135,8 +136,9 @@ public class MainActivity extends AppCompatActivity {
 
         handleNotificationIntent(getIntent());
 
-        // 注册系统级后台离线通知心跳 (WorkManager 方案 A)
+        // 注册系统级后台离线通知心跳 (WorkManager + AlarmManager 穿透双引擎)
         setupBackgroundNotificationWorker();
+        AlarmReceiver.scheduleNextAlarm(this);
 
         // 异步检查版本与缓存更新
         checkAppUpdateAsync();
@@ -239,16 +241,28 @@ public class MainActivity extends AppCompatActivity {
                     while ((l = r.readLine()) != null) sb.append(l);
                     r.close();
                     JSONObject json = new JSONObject(sb.toString());
-                    String latestVer = json.optString("latest_version", "1.0.1");
+                    boolean updateEnabled = json.optBoolean("update_enabled", false);
+                    boolean updateForced = json.optBoolean("update_forced", false);
+                    String latestVer = json.optString("latest_version", "1.0.3");
                     String apkUrl = json.optString("apk_download_url", "");
                     String updateNotes = json.optString("update_notes", "全新生图引擎升级，支持离线缓存加速与多通道容灾");
                     String cacheVer = json.optString("cache_version", "1.0.0");
 
                     CacheManager.getInstance(getApplicationContext()).syncCacheVersion(cacheVer);
 
-                    // 若线上版本高于当前安装的 1.0.2 则弹窗提示自更新
-                    if (!"1.0.2".equals(latestVer) && apkUrl.startsWith("http")) {
-                        new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl));
+                    // 若开启了更新推送且线上版本高于当前 1.0.3
+                    if (updateEnabled && !"1.0.3".equals(latestVer) && apkUrl.startsWith("http")) {
+                        if (updateForced) {
+                            // 强制升级模式：每次必须弹出，不可跳过
+                            new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl, true));
+                        } else {
+                            // 软更新模式：检查当天是否已跳过防骚扰
+                            SharedPreferences sp = getSharedPreferences("AppUpdatePrefs", MODE_PRIVATE);
+                            String todayStr = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(new java.util.Date());
+                            if (!todayStr.equals(sp.getString("skipped_date_" + latestVer, ""))) {
+                                new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl, false));
+                            }
+                        }
                     }
                 }
                 conn.disconnect();
@@ -256,8 +270,8 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    // 👑 暗黑轻奢毛玻璃版本更新弹窗 (彻底重塑，告别丑陋原生系统弹窗)
-    private void showUpdateDialog(String version, String notes, String downloadUrl) {
+    // 👑 暗黑轻奢毛玻璃版本更新弹窗 (双模式：支持软更新跳过记忆 / 强更新不可取消)
+    private void showUpdateDialog(String version, String notes, String downloadUrl, boolean isForced) {
         try {
             android.app.Dialog dialog = new android.app.Dialog(this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -269,14 +283,14 @@ public class MainActivity extends AppCompatActivity {
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
             bg.setColor(Color.parseColor("#f012121c"));
             bg.setCornerRadius(36f);
-            bg.setStroke(3, Color.parseColor("#50f59e0b"));
+            bg.setStroke(3, Color.parseColor(isForced ? "#ef4444" : "#50f59e0b"));
             root.setBackground(bg);
 
             // 头部标题
             android.widget.TextView titleTv = new android.widget.TextView(this);
-            titleTv.setText("🚀 发现新版本 v" + version);
+            titleTv.setText(isForced ? "⚠️ 系统服务重要升级 v" + version : "🚀 发现新版本 v" + version);
             titleTv.setTextSize(18f);
-            titleTv.setTextColor(Color.parseColor("#fbbf24"));
+            titleTv.setTextColor(Color.parseColor(isForced ? "#f87171" : "#fbbf24"));
             titleTv.setTypeface(null, android.graphics.Typeface.BOLD);
             titleTv.setGravity(android.view.Gravity.CENTER);
             root.addView(titleTv);
@@ -307,39 +321,48 @@ public class MainActivity extends AppCompatActivity {
             android.widget.LinearLayout btnRow = new android.widget.LinearLayout(this);
             btnRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
 
-            android.widget.Button btnCancel = new android.widget.Button(this);
-            btnCancel.setText("稍后再说");
-            btnCancel.setTextColor(Color.parseColor("#94a3b8"));
-            btnCancel.setTextSize(14f);
-            btnCancel.setTypeface(null, android.graphics.Typeface.BOLD);
-            android.widget.LinearLayout.LayoutParams cancelLp = new android.widget.LinearLayout.LayoutParams(
-                    0, 120, 1f);
-            cancelLp.setMargins(0, 0, 16, 0);
-            btnCancel.setLayoutParams(cancelLp);
-            android.graphics.drawable.GradientDrawable cancelBg = new android.graphics.drawable.GradientDrawable();
-            cancelBg.setColor(Color.parseColor("#20ffffff"));
-            cancelBg.setCornerRadius(24f);
-            cancelBg.setStroke(2, Color.parseColor("#40ffffff"));
-            btnCancel.setBackground(cancelBg);
-            btnCancel.setOnClickListener(v -> dialog.dismiss());
-            btnRow.addView(btnCancel);
+            if (!isForced) {
+                // 软更新：提供稍后再说按钮，并记录当天跳过防骚扰
+                android.widget.Button btnCancel = new android.widget.Button(this);
+                btnCancel.setText("稍后再说");
+                btnCancel.setTextColor(Color.parseColor("#94a3b8"));
+                btnCancel.setTextSize(14f);
+                btnCancel.setTypeface(null, android.graphics.Typeface.BOLD);
+                android.widget.LinearLayout.LayoutParams cancelLp = new android.widget.LinearLayout.LayoutParams(
+                        0, 120, 1f);
+                cancelLp.setMargins(0, 0, 16, 0);
+                btnCancel.setLayoutParams(cancelLp);
+                android.graphics.drawable.GradientDrawable cancelBg = new android.graphics.drawable.GradientDrawable();
+                cancelBg.setColor(Color.parseColor("#20ffffff"));
+                cancelBg.setCornerRadius(24f);
+                cancelBg.setStroke(2, Color.parseColor("#40ffffff"));
+                btnCancel.setBackground(cancelBg);
+                btnCancel.setOnClickListener(v -> {
+                    SharedPreferences sp = getSharedPreferences("AppUpdatePrefs", MODE_PRIVATE);
+                    String todayStr = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(new java.util.Date());
+                    sp.edit().putString("skipped_date_" + version, todayStr).apply();
+                    dialog.dismiss();
+                });
+                btnRow.addView(btnCancel);
+            }
 
             android.widget.Button btnConfirm = new android.widget.Button(this);
-            btnConfirm.setText("立即极速更新");
+            btnConfirm.setText(isForced ? "立即升级并继续使用" : "立即极速更新");
             btnConfirm.setTextColor(Color.parseColor("#000000"));
             btnConfirm.setTextSize(14f);
             btnConfirm.setTypeface(null, android.graphics.Typeface.BOLD);
             android.widget.LinearLayout.LayoutParams confirmLp = new android.widget.LinearLayout.LayoutParams(
-                    0, 120, 1.4f);
+                    0, 120, isForced ? 1f : 1.4f);
             btnConfirm.setLayoutParams(confirmLp);
             android.graphics.drawable.GradientDrawable confirmBg = new android.graphics.drawable.GradientDrawable(
                     android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{Color.parseColor("#f59e0b"), Color.parseColor("#d946ef")}
+                    isForced ? new int[]{Color.parseColor("#ef4444"), Color.parseColor("#f97316")} :
+                               new int[]{Color.parseColor("#f59e0b"), Color.parseColor("#d946ef")}
             );
             confirmBg.setCornerRadius(24f);
             btnConfirm.setBackground(confirmBg);
             btnConfirm.setOnClickListener(v -> {
-                dialog.dismiss();
+                if (!isForced) dialog.dismiss();
                 try {
                     DownloadManager.Request req = new DownloadManager.Request(Uri.parse(downloadUrl));
                     req.setTitle("Reality AI 正在更新...");
@@ -363,10 +386,91 @@ public class MainActivity extends AppCompatActivity {
                 dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.88),
                         android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
             }
+
+            if (isForced) {
+                dialog.setCancelable(false);
+                dialog.setCanceledOnTouchOutside(false);
+            } else {
+                dialog.setCancelable(true);
+                dialog.setCanceledOnTouchOutside(true);
+            }
             dialog.show();
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    // 👑 首次启动官方系统级权威规范引导弹窗 (杜绝任何营销福利感)
+    private void showOfficialSystemPermissionGuide() {
+        SharedPreferences sp = getSharedPreferences("SystemPermissionPrefs", MODE_PRIVATE);
+        if (sp.getBoolean("system_perm_guided", false)) {
+            checkAppPermissions();
+            return;
+        }
+
+        runOnUiThread(() -> {
+            try {
+                android.app.Dialog dialog = new android.app.Dialog(this);
+                dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+                android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+                root.setOrientation(android.widget.LinearLayout.VERTICAL);
+                root.setPadding(48, 44, 48, 44);
+
+                android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+                bg.setColor(Color.parseColor("#f8101018"));
+                bg.setCornerRadius(30f);
+                bg.setStroke(2, Color.parseColor("#4038bdf8"));
+                root.setBackground(bg);
+
+                android.widget.TextView titleTv = new android.widget.TextView(this);
+                titleTv.setText("⚙️ 系统状态与服务同步规范");
+                titleTv.setTextSize(16.5f);
+                titleTv.setTextColor(Color.parseColor("#f1f5f9"));
+                titleTv.setTypeface(null, android.graphics.Typeface.BOLD);
+                root.addView(titleTv);
+
+                android.widget.TextView msgTv = new android.widget.TextView(this);
+                msgTv.setText("依据 Android 系统通信与后台任务调度规范，本客户端需申请基础系统状态通知权限：\n\n" +
+                              "1. 系统服务状态同步：用于实时接收云端渲染完成状态、服务队列调度与紧急安全维护广播；\n" +
+                              "2. 后台自愈与连接保持：保障在多任务切换时维持任务会话连接，避免渲染意外中断。\n\n" +
+                              "本服务严格遵守设备数据安全规范，不收集任何非必要个人隐私。");
+                msgTv.setTextSize(13f);
+                msgTv.setTextColor(Color.parseColor("#94a3b8"));
+                msgTv.setLineSpacing(6f, 1.25f);
+                msgTv.setPadding(0, 24, 0, 32);
+                root.addView(msgTv);
+
+                android.widget.Button btnGrant = new android.widget.Button(this);
+                btnGrant.setText("开启系统状态同步");
+                btnGrant.setTextColor(Color.parseColor("#000000"));
+                btnGrant.setTextSize(14f);
+                btnGrant.setTypeface(null, android.graphics.Typeface.BOLD);
+                android.graphics.drawable.GradientDrawable grantBg = new android.graphics.drawable.GradientDrawable();
+                grantBg.setColor(Color.parseColor("#38bdf8"));
+                grantBg.setCornerRadius(20f);
+                btnGrant.setBackground(grantBg);
+                btnGrant.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 115));
+                
+                btnGrant.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    sp.edit().putBoolean("system_perm_guided", true).apply();
+                    checkAppPermissions();
+                });
+                root.addView(btnGrant);
+
+                dialog.setContentView(root);
+                if (dialog.getWindow() != null) {
+                    dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+                    dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.86),
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                }
+                dialog.show();
+            } catch (Exception e) {
+                checkAppPermissions();
+            }
+        });
     }
 
     @Override
