@@ -125,7 +125,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         createNotificationChannel();
-        showOfficialSystemPermissionGuide();
+        checkAppPermissions();
         setupWebSettings();
 
         webView.addJavascriptInterface(new NativeBridge(), "RealityNativeApp");
@@ -398,79 +398,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    // 👑 首次启动官方系统级权威规范引导弹窗 (杜绝任何营销福利感)
-    private void showOfficialSystemPermissionGuide() {
-        SharedPreferences sp = getSharedPreferences("SystemPermissionPrefs", MODE_PRIVATE);
-        if (sp.getBoolean("system_perm_guided", false)) {
-            checkAppPermissions();
-            return;
-        }
-
-        runOnUiThread(() -> {
-            try {
-                android.app.Dialog dialog = new android.app.Dialog(this);
-                dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-                android.widget.LinearLayout root = new android.widget.LinearLayout(this);
-                root.setOrientation(android.widget.LinearLayout.VERTICAL);
-                root.setPadding(48, 44, 48, 44);
-
-                android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-                bg.setColor(Color.parseColor("#f8101018"));
-                bg.setCornerRadius(30f);
-                bg.setStroke(2, Color.parseColor("#4038bdf8"));
-                root.setBackground(bg);
-
-                android.widget.TextView titleTv = new android.widget.TextView(this);
-                titleTv.setText("⚙️ 系统状态与服务同步规范");
-                titleTv.setTextSize(16.5f);
-                titleTv.setTextColor(Color.parseColor("#f1f5f9"));
-                titleTv.setTypeface(null, android.graphics.Typeface.BOLD);
-                root.addView(titleTv);
-
-                android.widget.TextView msgTv = new android.widget.TextView(this);
-                msgTv.setText("依据 Android 系统通信与后台任务调度规范，本客户端需申请基础系统状态通知权限：\n\n" +
-                              "1. 系统服务状态同步：用于实时接收云端渲染完成状态、服务队列调度与紧急安全维护广播；\n" +
-                              "2. 后台自愈与连接保持：保障在多任务切换时维持任务会话连接，避免渲染意外中断。\n\n" +
-                              "本服务严格遵守设备数据安全规范，不收集任何非必要个人隐私。");
-                msgTv.setTextSize(13f);
-                msgTv.setTextColor(Color.parseColor("#94a3b8"));
-                msgTv.setLineSpacing(6f, 1.25f);
-                msgTv.setPadding(0, 24, 0, 32);
-                root.addView(msgTv);
-
-                android.widget.Button btnGrant = new android.widget.Button(this);
-                btnGrant.setText("开启系统状态同步");
-                btnGrant.setTextColor(Color.parseColor("#000000"));
-                btnGrant.setTextSize(14f);
-                btnGrant.setTypeface(null, android.graphics.Typeface.BOLD);
-                android.graphics.drawable.GradientDrawable grantBg = new android.graphics.drawable.GradientDrawable();
-                grantBg.setColor(Color.parseColor("#38bdf8"));
-                grantBg.setCornerRadius(20f);
-                btnGrant.setBackground(grantBg);
-                btnGrant.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 115));
-                
-                btnGrant.setOnClickListener(v -> {
-                    dialog.dismiss();
-                    sp.edit().putBoolean("system_perm_guided", true).apply();
-                    checkAppPermissions();
-                });
-                root.addView(btnGrant);
-
-                dialog.setContentView(root);
-                if (dialog.getWindow() != null) {
-                    dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-                    dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.86),
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                }
-                dialog.show();
-            } catch (Exception e) {
-                checkAppPermissions();
-            }
-        });
     }
 
     @Override
