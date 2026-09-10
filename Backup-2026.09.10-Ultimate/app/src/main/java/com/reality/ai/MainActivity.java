@@ -32,9 +32,7 @@ import android.webkit.ValueCallback;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
 import android.webkit.WebHistoryItem;
-import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -43,59 +41,22 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-import androidx.work.Constraints;
-import androidx.work.ExistingPeriodicWorkPolicy;
-import androidx.work.NetworkType;
-import androidx.work.PeriodicWorkRequest;
-import androidx.work.WorkManager;
-import org.json.JSONObject;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends AppCompatActivity {
 
-    // 👑 动态内存十六进制混淆解密的多中继容灾矩阵 (彻底杜绝明文字符串)
-    private static final String[] GATEWAY_CHANNELS = new String[]{
-            decodeHex("68747470733a2f2f6170702e686970696e69732e6470646e732e6f72672f"), // 主通道: https://app.hipinis.dpdns.org/
-            decodeHex("68747470733a2f2f6170702e73756e6f66662e6470646e732e6f72672f"), // 备用1: https://app.sunoff.dpdns.org/
-            decodeHex("68747470733a2f2f6170702e7a65726f6e652e75732e6b672f")           // 备用2: https://app.zerone.us.kg/
-    };
-
+    // 专属独立跳转中枢（由 app.hipinis.dpdns.org 完全自主管控）
+    private static final String TARGET_URL = "https://app.hipinis.dpdns.org/";
     private static final String NOTIFICATION_CHANNEL_ID = "reality_ai_notify_channel";
     private static final String NOTIFICATION_CHANNEL_NAME = "Reality AI 即时通知";
     private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
     private static final int PERMISSION_REQUEST_CODE = 1002;
 
     private WebView webView;
-    private SwipeRefreshLayout swipeRefreshLayout;
     private ValueCallback<Uri[]> uploadMessage;
     private boolean doubleBackToExitPressedOnce = false;
-
-    private int currentChannelIndex = 0;
-    private boolean hasLoadedSuccessfully = false;
-    private final Handler failoverHandler = new Handler(Looper.getMainLooper());
-    private Runnable failoverRunnable;
-
-    public static String decodeHex(String hex) {
-        try {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < hex.length() - 1; i += 2) {
-                String output = hex.substring(i, i + 2);
-                int decimal = Integer.parseInt(output, 16);
-                sb.append((char) decimal);
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return "https://app.hipinis.dpdns.org/";
-        }
-    }
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @Override
@@ -105,25 +66,12 @@ public class MainActivity extends AppCompatActivity {
         setupImmersiveDarkMode();
         setContentView(R.layout.activity_main);
 
-        swipeRefreshLayout = findViewById(R.id.swipe_refresh_layout);
-        swipeRefreshLayout.setColorSchemeColors(Color.parseColor("#f59e0b"), Color.parseColor("#3b82f6"));
-        swipeRefreshLayout.setProgressBackgroundColorSchemeColor(Color.parseColor("#18181b"));
-
         webView = findViewById(R.id.main_webview);
         webView.setBackgroundColor(Color.parseColor("#0a0a0c"));
 
-        // 严格防误触设计：只有页面处于绝对置顶状态 (scrollY == 0) 时，才允许下拉刷新手势生效！
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            webView.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-                swipeRefreshLayout.setEnabled(scrollY == 0);
-            });
-        }
-
-        swipeRefreshLayout.setOnRefreshListener(() -> {
-            webView.reload();
-        });
-
+        // 初始化原生系统通知渠道
         createNotificationChannel();
+
         checkAppPermissions();
         setupWebSettings();
 
@@ -133,150 +81,10 @@ public class MainActivity extends AppCompatActivity {
         setupDownloadListener();
         setupCustomClients();
 
+        // 检查是否是通过点击通知唤起的
         handleNotificationIntent(getIntent());
 
-        // 注册系统级后台离线通知心跳 (WorkManager 方案 A)
-        setupBackgroundNotificationWorker();
-
-        // 异步检查版本与缓存更新
-        checkAppUpdateAsync();
-
-        // 启动三通道容灾加载
-        loadCurrentChannel();
-    }
-
-    private void loadCurrentChannel() {
-        if (currentChannelIndex >= GATEWAY_CHANNELS.length) {
-            showOfflineErrorPage();
-            return;
-        }
-        String url = GATEWAY_CHANNELS[currentChannelIndex];
-
-        if (failoverRunnable != null) {
-            failoverHandler.removeCallbacks(failoverRunnable);
-        }
-        // 2.5 秒极速超时熔断探测：若当前通道无响应且未加载成功，自动无缝切入下一备用通道
-        failoverRunnable = () -> {
-            if (!hasLoadedSuccessfully && currentChannelIndex < GATEWAY_CHANNELS.length - 1) {
-                currentChannelIndex++;
-                loadCurrentChannel();
-            }
-        };
-        failoverHandler.postDelayed(failoverRunnable, 2500);
-
-        webView.loadUrl(url);
-    }
-
-    private void switchToNextChannel() {
-        if (failoverRunnable != null) {
-            failoverHandler.removeCallbacks(failoverRunnable);
-        }
-        if (currentChannelIndex < GATEWAY_CHANNELS.length - 1) {
-            currentChannelIndex++;
-            loadCurrentChannel();
-        } else {
-            showOfflineErrorPage();
-        }
-    }
-
-    private void showOfflineErrorPage() {
-        if (swipeRefreshLayout != null) {
-            swipeRefreshLayout.setRefreshing(false);
-        }
-        String errorHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'>" +
-                "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
-                "<style>" +
-                "body{margin:0;background:#0a0a0c;color:#e4e4e7;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:20px;box-sizing:border-box;}" +
-                ".box{background:rgba(24,24,27,0.9);border:1px solid rgba(245,158,11,0.35);border-radius:20px;padding:36px 24px;max-width:340px;box-shadow:0 12px 35px rgba(0,0,0,0.85);}" +
-                ".icon{font-size:52px;margin-bottom:16px;filter:drop-shadow(0 0 16px rgba(245,158,11,0.6));}" +
-                ".title{font-size:20px;font-weight:bold;color:#fbbf24;margin-bottom:8px;letter-spacing:1px;}" +
-                ".desc{font-size:13px;color:#a1a1aa;line-height:1.6;margin-bottom:26px;}" +
-                ".btn{display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;font-weight:bold;padding:12px 36px;border-radius:24px;text-decoration:none;font-size:15px;box-shadow:0 4px 18px rgba(245,158,11,0.45);cursor:pointer;border:none;outline:none;transition:transform 0.2s;}" +
-                ".btn:active{transform:scale(0.96);}" +
-                "</style></head><body>" +
-                "<div class='box'>" +
-                "<div class='icon'>⚡</div>" +
-                "<div class='title'>网络连接微弱</div>" +
-                "<div class='desc'>暂时无法连接中继服务器，请检查网络设置或稍后点击重试</div>" +
-                "<button class='btn' onclick='if(window.RealityNativeApp){RealityNativeApp.retryConnect();}else{location.reload();}'>重新连接</button>" +
-                "</div></body></html>";
-        webView.loadDataWithBaseURL(null, errorHtml, "text/html", "utf-8", null);
-    }
-
-    private void setupBackgroundNotificationWorker() {
-        try {
-            PeriodicWorkRequest workRequest = new PeriodicWorkRequest.Builder(
-                    NotificationWorker.class,
-                    15, TimeUnit.MINUTES
-            ).setConstraints(
-                    new Constraints.Builder()
-                            .setRequiredNetworkType(NetworkType.CONNECTED)
-                            .build()
-            ).build();
-
-            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-                    "RealityAIBackgroundSync",
-                    ExistingPeriodicWorkPolicy.KEEP,
-                    workRequest
-            );
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void checkAppUpdateAsync() {
-        new Thread(() -> {
-            try {
-                String endpoint = GATEWAY_CHANNELS[0] + "api/notify_check";
-                URL url = new URL(endpoint);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(4000);
-                conn.setReadTimeout(4000);
-                if (conn.getResponseCode() == 200) {
-                    BufferedReader r = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                    StringBuilder sb = new StringBuilder();
-                    String l;
-                    while ((l = r.readLine()) != null) sb.append(l);
-                    r.close();
-                    JSONObject json = new JSONObject(sb.toString());
-                    String latestVer = json.optString("latest_version", "1.0.1");
-                    String apkUrl = json.optString("apk_download_url", "");
-                    String updateNotes = json.optString("update_notes", "全新生图引擎升级，支持离线缓存加速与多通道容灾");
-                    String cacheVer = json.optString("cache_version", "1.0.0");
-
-                    CacheManager.getInstance(getApplicationContext()).syncCacheVersion(cacheVer);
-
-                    // 若线上版本高于当前安装的 1.0.1 则弹窗提示自更新
-                    if (!"1.0.1".equals(latestVer) && apkUrl.startsWith("http")) {
-                        new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl));
-                    }
-                }
-                conn.disconnect();
-            } catch (Exception ignored) {}
-        }).start();
-    }
-
-    private void showUpdateDialog(String version, String notes, String downloadUrl) {
-        new AlertDialog.Builder(this)
-                .setTitle("🚀 发现新版本 " + version)
-                .setMessage(notes != null && !notes.isEmpty() ? notes : "检测到重要性能升级，推荐立即更新！")
-                .setPositiveButton("立即更新", (d, w) -> {
-                    try {
-                        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(downloadUrl));
-                        req.setTitle("Reality AI 正在更新...");
-                        req.setDescription("新版本安装包高速下载中");
-                        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                        req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RealityAI_v" + version + ".apk");
-                        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                        if (dm != null) dm.enqueue(req);
-                        Toast.makeText(this, "开始在后台下载新版本...", Toast.LENGTH_SHORT).show();
-                    } catch (Exception e) {
-                        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl));
-                        startActivity(i);
-                    }
-                })
-                .setNegativeButton("稍后再说", null)
-                .show();
+        webView.loadUrl(TARGET_URL);
     }
 
     @Override
@@ -327,7 +135,7 @@ public class MainActivity extends AppCompatActivity {
         s.setAllowContentAccess(true);
 
         String defaultUa = s.getUserAgentString();
-        s.setUserAgentString(defaultUa + " RealityAIBrowser/1.1 (Android Native Container; Failover; WarmCache)");
+        s.setUserAgentString(defaultUa + " RealityAIBrowser/1.0 (Android Native Container)");
     }
 
     private void checkAppPermissions() {
@@ -338,6 +146,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // 👑 创建高优先级原生通知渠道 (带声音/震动/状态栏浮窗)
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -439,39 +248,6 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
 
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                if (swipeRefreshLayout != null) {
-                    swipeRefreshLayout.setRefreshing(false);
-                }
-                hasLoadedSuccessfully = true;
-                if (failoverRunnable != null) {
-                    failoverHandler.removeCallbacks(failoverRunnable);
-                }
-            }
-
-            @Override
-            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) {
-                    switchToNextChannel();
-                }
-            }
-
-            @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                switchToNextChannel();
-            }
-
-            @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                WebResourceResponse resp = CacheManager.getInstance(getApplicationContext()).intercept(request.getUrl());
-                if (resp != null) {
-                    return resp;
-                }
-                return super.shouldInterceptRequest(view, request);
-            }
-
             @SuppressLint("WebViewClientOnReceivedSslError")
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
@@ -520,18 +296,10 @@ public class MainActivity extends AppCompatActivity {
             saveBase64Image(base64Data);
         }
 
+        // 👑 原生即时通知推送接口
         @JavascriptInterface
         public void postNotification(String title, String message, String jumpUrl) {
             sendSystemNotification(title, message, jumpUrl);
-        }
-
-        @JavascriptInterface
-        public void retryConnect() {
-            runOnUiThread(() -> {
-                currentChannelIndex = 0;
-                hasLoadedSuccessfully = false;
-                loadCurrentChannel();
-            });
         }
     }
 
@@ -581,6 +349,7 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
+    // 👑 执行系统级通知弹出
     private void sendSystemNotification(String title, String message, String jumpUrl) {
         try {
             Intent clickIntent = new Intent(this, MainActivity.class);
@@ -621,11 +390,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private boolean isGatewayDomain(String url) {
-        if (url == null) return false;
-        return url.contains("hipinis.dpdns.org") || url.contains("sunoff.dpdns.org") || url.contains("zerone.us.kg");
-    }
-
+    // 物理返回键严格按“正常后退优先，目标根页才双击退出”逻辑执行
     @Override
     public void onBackPressed() {
         if (webView == null) {
@@ -641,7 +406,7 @@ public class MainActivity extends AppCompatActivity {
                 WebHistoryItem prevItem = history.getItemAtIndex(currentIndex - 1);
                 if (prevItem != null) {
                     String prevUrl = prevItem.getUrl();
-                    if (isGatewayDomain(prevUrl)) {
+                    if (prevUrl != null && prevUrl.contains("app.hipinis.dpdns.org")) {
                         triggerExitLogic();
                         return;
                     }
@@ -666,9 +431,6 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        if (failoverRunnable != null) {
-            failoverHandler.removeCallbacks(failoverRunnable);
-        }
         if (webView != null) {
             webView.loadDataWithBaseURL(null, "", "text/html", "utf-8", null);
             webView.clearHistory();
@@ -677,4 +439,3 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 }
-
