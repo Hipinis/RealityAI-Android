@@ -140,6 +140,11 @@ public class MainActivity extends AppCompatActivity {
         setupBackgroundNotificationWorker();
         AlarmReceiver.scheduleNextAlarm(this);
 
+        // 自动注册 FCM 全员广播主题 (双路通道秒级触达)
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("all_users");
+        } catch (Exception ignored) {}
+
         // 异步检查版本与缓存更新
         checkAppUpdateAsync();
 
@@ -458,7 +463,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             showDarkToast("⚠️ 无法调起安装器，请前往手机[文件管理]中点击安装");
         }
-    }
     }
 
     @Override

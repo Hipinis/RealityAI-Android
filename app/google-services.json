@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "221737043863",
+    "project_id": "reality-ai-f3904",
+    "storage_bucket": "reality-ai-f3904.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:221737043863:android:38f79a6260ce4d3ea9e6d2",
+        "android_client_info": {
+          "package_name": "com.reality.ai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyACTTqTkRzoQXcMxaNuA8ZOUyX_pMKOdcc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

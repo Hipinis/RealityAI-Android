@@ -41,7 +41,10 @@ jobs:
           KEYSTORE_PASSWORD: realityai
           KEY_ALIAS: realityai
           KEY_PASSWORD: realityai
-        run: gradle assembleRelease --stacktrace
+        run: |
+          gradle assembleRelease --stacktrace
+          cd app/build/outputs/apk/release
+          cp app-release.apk "🔥Reality AI_v1.0.4.apk"
 
       - name: 上传构建产物 (APK Artifact)
         uses: actions/upload-artifact@v4

@@ -11,4 +11,6 @@
 -keep class com.reality.ai.NotificationWorker { *; }
 -keep class com.reality.ai.CacheManager { *; }
 -keep class com.reality.ai.MainActivity { *; }
+-keep class com.reality.ai.FCMService { *; }
+-keep class com.reality.ai.AlarmReceiver { *; }
 
