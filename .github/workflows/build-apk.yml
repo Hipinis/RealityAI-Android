@@ -32,15 +32,15 @@ jobs:
           if [ ! -f app/release.keystore ]; then
             keytool -genkey -v -keystore app/release.keystore \
               -alias realityai -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass realityai123456 -keypass realityai123456 \
+              -storepass realityai -keypass realityai \
               -dname "CN=RealityAI, OU=Dev, O=Zerone, L=LA, S=CA, C=US"
           fi
 
       - name: 构建 Release APK
         env:
-          KEYSTORE_PASSWORD: realityai123456
+          KEYSTORE_PASSWORD: realityai
           KEY_ALIAS: realityai
-          KEY_PASSWORD: realityai123456
+          KEY_PASSWORD: realityai
         run: gradle assembleRelease --stacktrace
 
       - name: 上传构建产物 (APK Artifact)
