@@ -246,6 +246,7 @@ public class MainActivity extends AppCompatActivity {
                     String latestVer = json.optString("latest_version", "1.0.3");
                     String apkUrl = json.optString("apk_download_url", "");
                     String updateNotes = json.optString("update_notes", "全新生图引擎升级，支持离线缓存加速与多通道容灾");
+                    String updateBtnText = json.optString("update_btn_text", "");
                     String cacheVer = json.optString("cache_version", "1.0.0");
 
                     CacheManager.getInstance(getApplicationContext()).syncCacheVersion(cacheVer);
@@ -254,13 +255,13 @@ public class MainActivity extends AppCompatActivity {
                     if (updateEnabled && !"1.0.3".equals(latestVer) && apkUrl.startsWith("http")) {
                         if (updateForced) {
                             // 强制升级模式：每次必须弹出，不可跳过
-                            new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl, true));
+                            new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl, updateBtnText, true));
                         } else {
                             // 软更新模式：检查当天是否已跳过防骚扰
                             SharedPreferences sp = getSharedPreferences("AppUpdatePrefs", MODE_PRIVATE);
                             String todayStr = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(new java.util.Date());
                             if (!todayStr.equals(sp.getString("skipped_date_" + latestVer, ""))) {
-                                new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl, false));
+                                new Handler(Looper.getMainLooper()).post(() -> showUpdateDialog(latestVer, updateNotes, apkUrl, updateBtnText, false));
                             }
                         }
                     }
@@ -271,7 +272,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 👑 暗黑轻奢毛玻璃版本更新弹窗 (双模式：支持软更新跳过记忆 / 强更新不可取消)
-    private void showUpdateDialog(String version, String notes, String downloadUrl, boolean isForced) {
+    private void showUpdateDialog(String version, String notes, String downloadUrl, String btnText, boolean isForced) {
         try {
             android.app.Dialog dialog = new android.app.Dialog(this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -347,7 +348,8 @@ public class MainActivity extends AppCompatActivity {
             }
 
             android.widget.Button btnConfirm = new android.widget.Button(this);
-            btnConfirm.setText(isForced ? "立即升级并继续使用" : "立即极速更新");
+            String confirmLabel = (btnText != null && !btnText.trim().isEmpty()) ? btnText : (isForced ? "立即升级并继续使用" : "立即极速更新");
+            btnConfirm.setText(confirmLabel);
             btnConfirm.setTextColor(Color.parseColor("#000000"));
             btnConfirm.setTextSize(14f);
             btnConfirm.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -364,14 +366,7 @@ public class MainActivity extends AppCompatActivity {
             btnConfirm.setOnClickListener(v -> {
                 if (!isForced) dialog.dismiss();
                 try {
-                    DownloadManager.Request req = new DownloadManager.Request(Uri.parse(downloadUrl));
-                    req.setTitle("Reality AI 正在更新...");
-                    req.setDescription("新版本安装包高速下载中");
-                    req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                    req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RealityAI_v" + version + ".apk");
-                    DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                    if (dm != null) dm.enqueue(req);
-                    showDarkToast("🚀 开始在后台下载新版本...");
+                    startApkDownload(downloadUrl, version);
                 } catch (Exception e) {
                     Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl));
                     startActivity(i);
@@ -398,6 +393,72 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    // 👑 标准化安装包下载与全自动触发安装广播注册
+    private void startApkDownload(String downloadUrl, String version) {
+        try {
+            String fileName = "🔥Reality AI_v" + version + ".apk";
+            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(downloadUrl));
+            req.setTitle("Reality AI 正在更新...");
+            req.setDescription("正在高速下载最新版本安装包");
+            req.setMimeType("application/vnd.android.package-archive");
+            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm != null) {
+                long downloadId = dm.enqueue(req);
+                registerInstallReceiver(downloadId, fileName);
+                showDarkToast("🚀 开始在后台下载新版本，完成后将自动引导安装...");
+            }
+        } catch (Exception e) {
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl));
+            startActivity(i);
+        }
+    }
+
+    // 👑 自动监听下载完成并立即弹起系统原生安装器
+    private void registerInstallReceiver(long targetDownloadId, String fileName) {
+        android.content.BroadcastReceiver receiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id == targetDownloadId) {
+                    try {
+                        context.unregisterReceiver(this);
+                    } catch (Exception ignored) {}
+                    promptInstallApk(fileName);
+                }
+            }
+        };
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, new android.content.IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(receiver, new android.content.IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+        }
+    }
+
+    private void promptInstallApk(String fileName) {
+        try {
+            File apkFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName);
+            if (!apkFile.exists()) return;
+
+            Intent installIntent = new Intent(Intent.ACTION_VIEW);
+            installIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Uri apkUri;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                apkUri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apkFile);
+            } else {
+                apkUri = Uri.fromFile(apkFile);
+            }
+            installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            startActivity(installIntent);
+        } catch (Exception e) {
+            showDarkToast("⚠️ 无法调起安装器，请前往手机[文件管理]中点击安装");
+        }
+    }
     }
 
     @Override
@@ -716,7 +777,20 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void postNotification(String title, String message, String jumpUrl) {
-            sendSystemNotification(title, message, jumpUrl);
+            postNotificationWithParams(title, message, jumpUrl, "once", 1);
+        }
+
+        // 👑 原生双模式与指纹防重核心入口
+        @JavascriptInterface
+        public void postNotificationWithParams(String title, String message, String jumpUrl, String mode, int notifyId) {
+            if ("once".equalsIgnoreCase(mode)) {
+                SharedPreferences prefs = getSharedPreferences("RealityAINotifyPrefs", Context.MODE_PRIVATE);
+                if (prefs.getBoolean("read_once_id_" + notifyId, false)) {
+                    return; // 已经收到过且属于单次通知，彻底拦截丢弃！
+                }
+                prefs.edit().putBoolean("read_once_id_" + notifyId, true).apply();
+            }
+            sendSystemNotification(title, message, jumpUrl, notifyId);
         }
 
         @JavascriptInterface
@@ -804,6 +878,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void sendSystemNotification(String title, String message, String jumpUrl) {
+        sendSystemNotification(title, message, jumpUrl, (int) (System.currentTimeMillis() % 100000));
+    }
+
+    private void sendSystemNotification(String title, String message, String jumpUrl, int notifyId) {
         try {
             Intent clickIntent = new Intent(this, MainActivity.class);
             clickIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -818,7 +896,7 @@ public class MainActivity extends AppCompatActivity {
 
             PendingIntent pendingIntent = PendingIntent.getActivity(
                     this,
-                    (int) System.currentTimeMillis(),
+                    notifyId,
                     clickIntent,
                     flags
             );
@@ -835,7 +913,6 @@ public class MainActivity extends AppCompatActivity {
 
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null) {
-                int notifyId = (int) (System.currentTimeMillis() % 100000);
                 manager.notify(notifyId, builder.build());
             }
         } catch (Exception e) {
