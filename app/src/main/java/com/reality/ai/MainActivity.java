@@ -4,6 +4,9 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -36,6 +39,7 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -45,6 +49,8 @@ public class MainActivity extends AppCompatActivity {
 
     // 专属独立跳转中枢（由 app.hipinis.dpdns.org 完全自主管控）
     private static final String TARGET_URL = "https://app.hipinis.dpdns.org/";
+    private static final String NOTIFICATION_CHANNEL_ID = "reality_ai_notify_channel";
+    private static final String NOTIFICATION_CHANNEL_NAME = "Reality AI 即时通知";
     private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
     private static final int PERMISSION_REQUEST_CODE = 1002;
 
@@ -63,6 +69,9 @@ public class MainActivity extends AppCompatActivity {
         webView = findViewById(R.id.main_webview);
         webView.setBackgroundColor(Color.parseColor("#0a0a0c"));
 
+        // 初始化原生系统通知渠道
+        createNotificationChannel();
+
         checkAppPermissions();
         setupWebSettings();
 
@@ -72,7 +81,28 @@ public class MainActivity extends AppCompatActivity {
         setupDownloadListener();
         setupCustomClients();
 
+        // 检查是否是通过点击通知唤起的
+        handleNotificationIntent(getIntent());
+
         webView.loadUrl(TARGET_URL);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleNotificationIntent(intent);
+    }
+
+    private void handleNotificationIntent(Intent intent) {
+        if (intent != null && intent.hasExtra("jump_url")) {
+            String jumpUrl = intent.getStringExtra("jump_url");
+            if (jumpUrl != null && (jumpUrl.startsWith("http://") || jumpUrl.startsWith("https://"))) {
+                if (webView != null) {
+                    webView.loadUrl(jumpUrl);
+                }
+            }
+        }
     }
 
     private void setupImmersiveDarkMode() {
@@ -112,6 +142,27 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, PERMISSION_REQUEST_CODE);
+            }
+        }
+    }
+
+    // 👑 创建高优先级原生通知渠道 (带声音/震动/状态栏浮窗)
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID,
+                    NOTIFICATION_CHANNEL_NAME,
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            channel.setDescription("用于接收系统广播、生图完成通知及专属福利");
+            channel.enableLights(true);
+            channel.setLightColor(Color.parseColor("#f59e0b"));
+            channel.enableVibration(true);
+            channel.setVibrationPattern(new long[]{0, 250, 150, 250});
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
             }
         }
     }
@@ -244,6 +295,12 @@ public class MainActivity extends AppCompatActivity {
         public void saveBase64(String base64Data) {
             saveBase64Image(base64Data);
         }
+
+        // 👑 原生即时通知推送接口
+        @JavascriptInterface
+        public void postNotification(String title, String message, String jumpUrl) {
+            sendSystemNotification(title, message, jumpUrl);
+        }
     }
 
     private void saveImageToGallery(String imageUrl) {
@@ -292,7 +349,48 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    // 👑 终极修复：物理返回键严格按“正常后退优先，目标根页才双击退出”逻辑执行
+    // 👑 执行系统级通知弹出
+    private void sendSystemNotification(String title, String message, String jumpUrl) {
+        try {
+            Intent clickIntent = new Intent(this, MainActivity.class);
+            clickIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (jumpUrl != null && !jumpUrl.isEmpty()) {
+                clickIntent.putExtra("jump_url", jumpUrl);
+            }
+
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+
+            PendingIntent pendingIntent = PendingIntent.getActivity(
+                    this,
+                    (int) System.currentTimeMillis(),
+                    clickIntent,
+                    flags
+            );
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle(title != null && !title.isEmpty() ? title : "🔥 Reality AI 系统通知")
+                    .setContentText(message != null && !message.isEmpty() ? message : "您有一条新的服务动态")
+                    .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setDefaults(NotificationCompat.DEFAULT_ALL)
+                    .setAutoCancel(true)
+                    .setContentIntent(pendingIntent);
+
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) {
+                int notifyId = (int) (System.currentTimeMillis() % 100000);
+                manager.notify(notifyId, builder.build());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // 物理返回键严格按“正常后退优先，目标根页才双击退出”逻辑执行
     @Override
     public void onBackPressed() {
         if (webView == null) {
@@ -300,12 +398,10 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // 1. 若当前还可以后退，深入分析历史栈
         if (webView.canGoBack()) {
             WebBackForwardList history = webView.copyBackForwardList();
             int currentIndex = history.getCurrentIndex();
 
-            // 若回退一步会退回到中转站自身 (app.hipinis.dpdns.org)，说明当前已经是目标网站的起始根部
             if (currentIndex > 0) {
                 WebHistoryItem prevItem = history.getItemAtIndex(currentIndex - 1);
                 if (prevItem != null) {
@@ -317,10 +413,8 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            // 正常情况下（在目标网站如 beacons/生图站的多级页面内浏览），放行正常后退！
             webView.goBack();
         } else {
-            // 2. 已经完全不可后退，触发双击退出应用
             triggerExitLogic();
         }
     }
